@@ -16,35 +16,33 @@ def main():
         # create db if doesnt exist
         conn = sqlite3.connect(DB)
         c = conn.cursor()
+        create_db_objects(c)
+        
+        # get odds
+        odds = get_odds()
 
-        #  create table if doesnt exist
-        sql = '''
-            CREATE TABLE IF NOT EXISTS tbl_AFL_Odds (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                event_time DATETIME,
-                home_team STRING,
-                home_odds REAL,
-                away_team STRING,
-                away_odds REAL,
-                source STRING,
-                updated DATETIME NOT NULL
-            )
-        '''
-        c.execute(sql)
-
-        # insert data from scraping the odds
-        sql = '''
-            INSERT INTO tbl_AFL_Odds (updated, event_time, home_team, away_team, home_odds, away_odds, source)
-            VALUES (datetime('now','localtime'), :event_time, :home_team, :away_team, :home_odds, :away_odds, :source)
-        '''
-        c.executemany(sql, get_odds())
+        # insert odds data into sql
+        for match in odds:
+            sql = '''
+                INSERT OR IGNORE INTO match (event_time, home_team, away_team)
+                VALUES (:event_time, :home_team, :away_team);
+            '''
+            c.execute(sql, match)
+            # id = c.lastrowid
+            sql = '''
+                INSERT INTO odds (match_id, home_odds, away_odds, source, updated)
+                SELECT id, :home_odds, :away_odds, :source, datetime('now','localtime')
+                FROM match
+                WHERE event_time=:event_time AND home_team=:home_team AND away_team=:away_team
+            '''
+            c.execute(sql, match)
 
         # commit and close
         conn.commit()
         c.close()
 
         # print table
-        db_print(DB, "select * from tbl_AFL_Odds ORDER BY updated desc, event_time asc limit 20")
+        # db_print(DB, "select * from afl_odds ORDER BY updated desc, event_time asc limit 20")
 
     except Exception as e:
         print(e)
@@ -52,6 +50,40 @@ def main():
     finally:
         if conn:
             conn.close()
+
+
+def create_db_objects(cursor):
+    
+        sql = '''
+            CREATE TABLE IF NOT EXISTS match (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_time DATETIME,
+                round INTEGER,
+                home_team STRING,
+                away_team STRING,
+                UNIQUE(event_time,home_team,away_team)
+            )
+        '''
+        cursor.execute(sql)
+        sql = '''
+            CREATE TABLE IF NOT EXISTS odds (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                match_id INTEGER,
+                market STRING,
+                home_odds REAL,
+                away_odds REAL,
+                source STRING,
+                updated DATETIME NOT NULL
+            );
+        '''
+        cursor.execute(sql)
+        sql = '''
+            CREATE VIEW IF NOT EXISTS afl_odds AS 
+            SELECT round, event_time, home_team, home_odds, away_team, away_odds, updated
+            FROM match m 
+            INNER JOIN odds o ON m.id = o.match_id
+        '''
+        cursor.execute(sql)
 
 
 def get_odds():
