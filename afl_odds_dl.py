@@ -24,16 +24,16 @@ def main():
         # insert odds data into sql
         for match in odds:
             sql = '''
-                INSERT OR IGNORE INTO match (event_time, home_team, away_team)
-                VALUES (:event_time, :home_team, :away_team);
+                INSERT OR IGNORE INTO match (event_time, round, home_team, away_team)
+                VALUES (:event_time, :round, :home_team, :away_team);
             '''
             c.execute(sql, match)
             # id = c.lastrowid
             sql = '''
-                INSERT INTO odds (match_id, home_odds, away_odds, source, updated)
-                SELECT id, :home_odds, :away_odds, :source, datetime('now','localtime')
+                INSERT INTO odds (match_id, home_odds, away_odds, market, source, updated)
+                SELECT id, :home_odds, :away_odds, :market, :source, datetime('now','localtime')
                 FROM match
-                WHERE event_time=:event_time AND home_team=:home_team AND away_team=:away_team
+                WHERE round=:round AND home_team=:home_team AND away_team=:away_team
             '''
             c.execute(sql, match)
 
@@ -98,40 +98,43 @@ def get_odds():
 
         # with open("soup1.html", "w", encoding="UTF-8") as f:
         #     f.write(soup.prettify())
+        
+        #  get the round number
+        round = soup.find("li", attrs={"data-automation-id": "competition-round-selector-1"}).getText()
 
         # get the relevant part of the soup
         regex = re.compile("\d+-competition-event-card")
-        soup = soup.find_all("div", attrs={"data-automation-id": regex})
+        matches = soup.find_all("div", attrs={"data-automation-id": regex})
 
-        # for s in soup:
+        # for match in matches:
         #     with open("soup2.html", "a", encoding="UTF-8") as f:
-        #         f.write(s.prettify())
+        #         f.write(match.prettify())
 
         # extract out time from soup
         event_times = []
-        for s in soup:
-            t = s.find("span", attrs={"data-automation-id": "competition-event-card-time"})
-            event_times.append(t.getText())
+        for match in matches:
+            et = match.find("span", attrs={"data-automation-id": "competition-event-card-time"})
+            event_times.append(et.getText())
 
         # extract out odds from soup for each market
         mkt_odds = []
-        for s in soup:
-            t = s.find_all("span", attrs={"data-automation-id": "price-text"})
-            mkt_odds.append(cleaner(t))
+        for match in matches:
+            o = match.find_all("span", attrs={"data-automation-id": "price-text"})
+            mkt_odds.append(cleaner(o))
 
         # extract out market labels from soup
         mkt_labels = []
-        for s in soup:
-            t = s.find_all(
+        for match in matches:
+            mkt = match.find_all(
                 "div", attrs={"data-automation-id": "market-coupon-label"})
-            mkt_labels.append(cleaner(t))
+            mkt_labels.append(cleaner(mkt))
 
         # extract out participants from soup
         participants = []
         regex = re.compile("(participant-(one|two))")
-        for s in soup:
-            t = s.find_all("div", attrs={"data-automation-id": regex})
-            participants.append(cleaner(t))
+        for match in matches:
+            team = match.find_all("div", attrs={"data-automation-id": regex})
+            participants.append(cleaner(team))
 
         # all lists should be same size (number of matches)
         if (len(mkt_odds) != len(mkt_labels)
@@ -139,6 +142,7 @@ def get_odds():
                 or len(mkt_labels) != len(participants)):
             return None
 
+        #  reset list of matches
         matches = []
 
         # loop through each match
@@ -156,13 +160,16 @@ def get_odds():
                 if mkt.lower() == "head to head":
                     odds_home = odds[j * 2]
                     odds_away = odds[j * 2 + 1]
+                    market = mkt
                     break
 
             # add dict to list of matches
             matches.append({
                 "event_time": dt,
+                "round": round,
                 "home_team": fix_team_name(teams[0]),
                 "away_team": fix_team_name(teams[1]),
+                "market": market,
                 "home_odds": odds_home,
                 "away_odds": odds_away,
                 "updated": str(datetime.now().astimezone(pytz.utc)),
